@@ -2,8 +2,14 @@ name: Django CI
 
 on:
   push:
-    branches: [ main,HN_feature_GitHub_Test_Exports,HN_personal_GitHub_Test_Exports]
+    branches: [ main, HN_feature_GitHub_Test_Exports, HN_personal_GitHub_Test_Exports ]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
 
 concurrency:
   group: django-ci-${{ github.ref }}
@@ -30,11 +36,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install Pillow
           pip install pytest pytest-django pytest-cov model-bakery
 
+      # Optional: pytest-django can create the test DB itself, but keeping this is fine
       - name: Prepare DB (migrations)
-        run: |
-          python manage.py migrate --noinput
+        run: python manage.py migrate --noinput
 
       - name: Run pytest with coverage (JUnit and XML reports)
         run: |
@@ -46,15 +53,17 @@ jobs:
         if: always()
         with:
           name: django-reports
-          path: |
-            reports/
+          path: reports/
           if-no-files-found: error
           retention-days: 7
 
       - name: Publish test report in GitHub
         uses: dorny/test-reporter@v1
-        if: always()
+        # Create check runs only when token has perms (not forked PRs)
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
         with:
           name: Django Tests
           path: reports/pytest.xml
           reporter: java-junit
+          fail-on-error: false
+          fail-on-empty: false
