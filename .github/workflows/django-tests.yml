@@ -2,7 +2,7 @@ name: Django CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main,HN_feature_GitHub_Test_Exports,HN_personal_GitHub_Test_Exports]
   pull_request:
 
 concurrency:
