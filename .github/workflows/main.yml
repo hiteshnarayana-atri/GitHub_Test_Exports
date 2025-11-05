@@ -152,7 +152,7 @@ jobs:
 
       - name: Merge all the test reports (XML → CSV & JSON)
         run: |
-          python scripts/merge_all_tests.py 'collected/**/*.xml' collected/out
+          python scripts/merge_junit_tests.py 'collected/**/*.xml' collected/out
 
       - name: Upload combined stakeholder reports
         uses: actions/upload-artifact@v4
