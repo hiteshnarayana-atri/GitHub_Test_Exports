@@ -1,0 +1,19 @@
+{
+  "name": "studybud",
+  "version": "1.0.0",
+  "description": "",
+  "main": "cypress.config.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "cypress": "^15.6.0",
+    "mocha-junit-reporter": "^2.2.1"
+  }
+}
