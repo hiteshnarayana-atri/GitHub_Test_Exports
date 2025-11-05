@@ -134,10 +134,21 @@ jobs:
           fail-on-error: false
           fail-on-empty: false
 
+
   aggregate:
     runs-on: ubuntu-latest
     needs: [ backend, frontend_e2e ]
     steps:
+      # bring your repo (so /scripts exists)
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ensure python available (good hygiene)
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Download backend artifacts
         uses: actions/download-artifact@v4
         with:
@@ -153,6 +164,8 @@ jobs:
       - name: Merge all the test reports (XML → CSV & JSON)
         run: |
           python scripts/merge_junit_tests.py 'collected/**/*.xml' collected/out
+          ls -la collected/out
+          head -n 5 collected/out/all_tests.csv || true
 
       - name: Upload combined stakeholder reports
         uses: actions/upload-artifact@v4
