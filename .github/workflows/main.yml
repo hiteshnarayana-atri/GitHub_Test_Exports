@@ -47,7 +47,8 @@ jobs:
             --cov=base \
             --cov-report=xml:reports/backend/coverage.xml
 
-      - name: Convert backend JUnit XML → CSV
+     # The scripts takes args: input_xml_path output_csv_path [workflow] [test_type]
+      - name: Convert backend tests (XML to CSV (and JSON))
         run: |
           python scripts/convert_junit_to_csv.py reports/backend/pytest.xml reports/backend/tests_backend.csv backend pytest
 
@@ -61,7 +62,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish backend test summary
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v1 
         if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
         with:
           name: Django Tests
@@ -108,10 +109,11 @@ jobs:
           mkdir -p reports/frontend
           npx cypress run --browser chrome
 
-      - name: Convert frontend JUnit XML → CSV
+      - name: Convert frontend tests (XML to CSV(and JSON))
         run: |
           python scripts/convert_junit_to_csv.py 'reports/frontend/*.xml' reports/frontend/tests_frontend.csv frontend
 
+     # Can be large due to videos/screenshots
       - name: Upload frontend artifacts
         uses: actions/upload-artifact@v4
         if: always()
@@ -137,7 +139,7 @@ jobs:
 
   aggregate:
     runs-on: ubuntu-latest
-    needs: [ backend, frontend_e2e ]
+    needs: [ backend, frontend_e2e ] # wait for both to finish (optional if you want to merge reports)
     steps:
       # bring your repo (so /scripts exists)
       - name: Checkout
@@ -161,13 +163,13 @@ jobs:
           name: frontend-reports
           path: collected/frontend
 
-      - name: Merge all the test reports (XML → CSV & JSON)
+      - name: Merge all the test reports
         run: |
           python scripts/merge_junit_tests.py 'collected/**/*.xml' collected/out
           ls -la collected/out
           head -n 5 collected/out/all_tests.csv || true
 
-      - name: Upload combined stakeholder reports
+      - name: Upload combined reports
         uses: actions/upload-artifact@v4
         with:
           name: combined-test-reports

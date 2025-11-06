@@ -28,7 +28,7 @@ def main(xml_pattern, output_dir):
             continue
             
         for suite in root.iter('testsuite'):
-            component = 'frontend' if '/frontend/' in f else ('backend' if '/backend/' in f else 'unknown')
+            component = 'Frontend' if '/frontend/' in f else ('Backend' if '/backend/' in f else 'unknown')
             for tc in suite.iter('testcase'):
                 rows.append({
                     "component": component,

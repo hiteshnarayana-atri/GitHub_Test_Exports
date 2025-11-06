@@ -36,10 +36,10 @@ def convert_xml_to_csv(xml_path, output_csv, component='', suite=''):
                     rows.append([
                         component,
                         current_suite,
-                        testcase.attrib.get('classname', ''),
-                        testcase.attrib.get('name', ''),
-                        get_test_status(testcase),
-                        testcase.attrib.get('time', '0'),
+                        testcase.attrib.get('classname', ''), # gives the class name
+                        testcase.attrib.get('name', ''), # gives the test name
+                        get_test_status(testcase), # failed, error, skipped, passed
+                        testcase.attrib.get('time', '0'), # duration in seconds
                         testcase.attrib.get('file', ''),
                     ])
         except Exception as e:
@@ -49,7 +49,7 @@ def convert_xml_to_csv(xml_path, output_csv, component='', suite=''):
     os.makedirs(os.path.dirname(output_csv) or '.', exist_ok=True)
     with open(output_csv, 'w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(["component", "suite", "class", "test_name", "status", "duration_seconds", "file"])
+        writer.writerow(["component", "suite", "class", "test_name", "status", "duration_seconds", "file"]) # header
         writer.writerows(rows)
     print(f"Wrote {output_csv}, rows: {len(rows)}")
 
