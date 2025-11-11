@@ -1,13 +1,12 @@
 name: main - CI
 
 on:
-  push:
-    branches:
-      - main
-      - HN_feature_GitHub_Test_Exports
-      - HN_personal_GitHub_Test_Exports
   pull_request:
-  workflow_dispatch:
+    branches: [HN_feature_GitHub_Test_Exports]
+    paths:
+      - '**.py'
+      - 'cypress/**'
+      - '.github/workflows/**'
 
 permissions:
   contents: read
@@ -18,16 +17,26 @@ concurrency:
   group: main-ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "20"
+
+# Backend
 jobs:
-  backend:
+  app-backend:
+    name: Backend • ${{ matrix.app }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [ base, notifications ]  # We can extend the matrix with more apps later
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-          cache: "pip"
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
           cache-dependency-path: |
             requirements*.txt
             **/requirements*.txt
@@ -41,23 +50,35 @@ jobs:
 
       - name: Run pytest (JUnit + coverage)
         run: |
-          mkdir -p reports/backend
-          pytest -q \
-            --junitxml=reports/backend/pytest.xml \
-            --cov=base \
-            --cov-report=xml:reports/backend/coverage.xml
+          mkdir -p reports/${{ matrix.app }}/backend
+          if [ -d "${{ matrix.app }}/tests" ]; then
+            pytest -q ${{ matrix.app }}/tests \
+              --junitxml=reports/${{ matrix.app }}/backend/pytest.xml \
+              --cov=${{ matrix.app }} \
+              --cov-report=xml:reports/${{ matrix.app }}/backend/coverage.xml
+          else
+            pytest -q \
+              --junitxml=reports/${{ matrix.app }}/backend/pytest.xml \
+              --cov=base \
+              --cov-report=xml:reports/${{ matrix.app }}/backend/coverage.xml
+          fi
 
-     # The scripts takes args: input_xml_path output_csv_path [workflow] [test_type]
-      - name: Convert backend tests (XML to CSV (and JSON))
+      - name: Convert JUnit to CSV (with GitHub metadata)
         run: |
-          python scripts/convert_junit_to_csv.py reports/backend/pytest.xml reports/backend/tests_backend.csv backend pytest
+          python scripts/convert_junit_to_csv.py \
+            "reports/${{ matrix.app }}/backend/pytest.xml" \
+            "reports/${{ matrix.app }}/backend/tests_backend.csv" \
+            "${{ matrix.app }}" "pytest" \
+            "${{ github.run_id }}" "${{ github.run_number }}" \
+            "${{ github.sha }}" "${{ github.ref_name }}" \
+            "${{ github.workflow }}"
 
       - name: Upload backend artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: backend-reports
-          path: reports/backend/*
+          name: ${{ matrix.app }}-backend-reports
+          path: reports/${{ matrix.app }}/backend/*
           retention-days: 7
           if-no-files-found: error
 
@@ -65,30 +86,31 @@ jobs:
         uses: dorny/test-reporter@v1 
         if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
         with:
-          name: Django Tests
-          path: reports/backend/pytest.xml
+          name: "${{ matrix.app }} Django Tests"
+          path: reports/${{ matrix.app }}/backend/pytest.xml
           reporter: java-junit
           fail-on-error: false
           fail-on-empty: false
 
-  frontend_e2e:
+  # FRONTEND
+  app-frontend:
+    name: Frontend for base app
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-          cache: "pip"
+          python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install backend deps for server
+      - name: Install backend deps for local server
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install Pillow
           python manage.py migrate --noinput
 
-      - name: Start Django server
+      - name: Start Django dev server
         run: |
           nohup python manage.py runserver 0.0.0.0:8000 >/dev/null 2>&1 &
           for i in {1..40}; do
@@ -98,30 +120,35 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: "npm"
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
 
       - name: Install Cypress deps
         run: npm ci
 
-      - name: Run Cypress headless (JUnit)
+      - name: Run Cypress (headless, JUnit)
         run: |
-          mkdir -p reports/frontend
+          mkdir -p reports/base/frontend
           npx cypress run --browser chrome
 
-      - name: Convert frontend tests (XML to CSV(and JSON))
+      - name: Convert Cypress JUnit → CSV (with GitHub metadata)
         run: |
-          python scripts/convert_junit_to_csv.py 'reports/frontend/*.xml' reports/frontend/tests_frontend.csv frontend
+          python scripts/convert_junit_to_csv.py \
+            "reports/frontend/*.xml" \
+            "reports/base/frontend/tests_frontend.csv" \
+            "base" "cypress" \
+            "${{ github.run_id }}" "${{ github.run_number }}" \
+            "${{ github.sha }}" "${{ github.ref_name }}" \
+            "${{ github.workflow }}"
 
-     # Can be large due to videos/screenshots
       - name: Upload frontend artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: frontend-reports
+          name: base-frontend-reports
           path: |
+            reports/base/frontend/*.csv
             reports/frontend/*.xml
-            reports/frontend/tests_frontend.csv
             cypress/videos/**
             cypress/screenshots/**
           retention-days: 7
@@ -130,40 +157,43 @@ jobs:
         uses: dorny/test-reporter@v1
         if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
         with:
-          name: Cypress E2E
+          name: "Cypress E2E (base)"
           path: reports/frontend/*.xml
           reporter: java-junit
           fail-on-error: false
           fail-on-empty: false
 
-
+  # AGGREGATE
   aggregate:
+    name: Aggregate Reports
     runs-on: ubuntu-latest
-    needs: [ backend, frontend_e2e ] # wait for both to finish (optional if you want to merge reports)
+    needs: [ app-backend, app-frontend ]
     steps:
-      # bring your repo (so /scripts exists)
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # ensure python available (good hygiene)
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Download backend artifacts
+      - name: Download base backend artifacts
         uses: actions/download-artifact@v4
         with:
-          name: backend-reports
-          path: collected/backend
+          name: base-backend-reports
+          path: collected/base/backend
 
-      - name: Download frontend artifacts
+      - name: Download notifications backend artifacts
         uses: actions/download-artifact@v4
         with:
-          name: frontend-reports
-          path: collected/frontend
+          name: notifications-backend-reports
+          path: collected/notifications/backend
 
-      - name: Merge all the test reports
+      - name: Download base frontend artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: base-frontend-reports
+          path: collected/base/frontend
+
+      - name: Merge all JUnit to CSV & JSON
         run: |
           python scripts/merge_junit_tests.py 'collected/**/*.xml' collected/out
           ls -la collected/out
