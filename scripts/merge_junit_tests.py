@@ -45,7 +45,7 @@ def main(xml_pattern, output_dir):
                         msg = (node.attrib.get('message') or '').strip()
                         break
 
-                # derive component & test_type from path (lightweight heuristic)
+                # derive component & test_type from path
                 component = 'notifications' if '/notifications/' in f else ('base' if '/base/' in f else 'unknown')
                 test_type = 'cypress' if '/frontend/' in f else 'pytest'
 

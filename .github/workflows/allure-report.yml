@@ -1,0 +1,62 @@
+name: Allure Report
+
+on:
+  workflow_run:
+    workflows: ["main - CI"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    name: Build Allure
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion != 'cancelled' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts from main - CI
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          run_id: ${{ github.event.workflow_run.id }}
+          name: |
+            base-backend
+            base-frontend
+            notifications-backend
+          path: artifacts
+          if_no_artifact_found: ignore
+
+      - name: Prepare Allure inputs
+        run: |
+          mkdir -p allure-results-merged
+          find artifacts -type d -name "allure-results" -print0 | while IFS= read -r -d '' d; do
+            cp -r "$d"/. allure-results-merged/
+          done
+          ls -la allure-results-merged || true
+
+      - name: Generate Allure report
+        uses: simple-elf/allure-report-action@v1
+        with:
+          allure_results: allure-results-merged
+          allure_report: allure-report
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: allure-report
+
+  deploy:
+    name: Deploy to Pages
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
