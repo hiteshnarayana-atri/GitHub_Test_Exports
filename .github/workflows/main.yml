@@ -48,7 +48,7 @@ jobs:
           pip install -r requirements.txt
           pip install Pillow pytest pytest-django pytest-cov model-bakery
 
-      - name: Pytest (XML and coverage)
+      - name: Pytest (XML, coverage, Allure)
         run: |
           mkdir -p reports/${{ matrix.app }}/backend
           if [ -d "${{ matrix.app }}/tests" ]; then
@@ -61,7 +61,8 @@ jobs:
           pytest -q "$TEST_PATH" \
             --junitxml=reports/${{ matrix.app }}/backend/pytest.xml \
             --cov="$COV_TARGET" \
-            --cov-report=xml:reports/${{ matrix.app }}/backend/coverage.xml
+            --cov-report=xml:reports/${{ matrix.app }}/backend/coverage.xml \
+            --alluredir=reports/${{ matrix.app }}/backend/allure-results
 
       - name: Convert backend JUnit to CSV
         run: |
@@ -78,7 +79,9 @@ jobs:
         if: always()
         with:
           name: ${{ matrix.app }}-backend
-          path: reports/${{ matrix.app }}/backend/*
+          path: |
+            reports/${{ matrix.app }}/backend/allure-results/**
+            reports/${{ matrix.app }}/backend/*
           retention-days: 7
           if-no-files-found: error
 
@@ -112,11 +115,12 @@ jobs:
         if: ${{ matrix.has_frontend == true }}
         run: npm ci
 
-      - name: Run Cypress (JUnit)
+      - name: Run Cypress (JUnit, Allure)
         if: ${{ matrix.has_frontend == true }}
         run: |
           mkdir -p reports/${{ matrix.app }}/frontend
-          npx cypress run --browser chrome
+          npx cypress run --browser chrome \
+            --env allure=true,allureResultsPath=reports/${{ matrix.app }}/frontend/allure-results
 
       - name: Convert Cypress JUnit to CSV
         if: ${{ matrix.has_frontend == true }}
@@ -135,6 +139,7 @@ jobs:
         with:
           name: ${{ matrix.app }}-frontend
           path: |
+            reports/${{ matrix.app }}/frontend/allure-results/**
             reports/${{ matrix.app }}/frontend/*.csv
             reports/frontend/*.xml
             cypress/videos/**
