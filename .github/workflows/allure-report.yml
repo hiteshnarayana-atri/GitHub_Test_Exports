@@ -1,0 +1,90 @@
+name: Allure Report
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["main - CI"]
+    types: [completed]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    name: Build Allure
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download artifacts (base-backend)
+        uses: actions/download-artifact@v4
+        with:
+          name: base-backend
+          path: collected/base/backend
+          run-id: ${{ github.event.workflow_run.id }}
+        continue-on-error: true
+
+      - name: Download artifacts (base-frontend)
+        uses: actions/download-artifact@v4
+        with:
+          name: base-frontend
+          path: collected/base/frontend
+          run-id: ${{ github.event.workflow_run.id }}
+        continue-on-error: true
+
+      - name: Download artifacts (notifications-backend)
+        uses: actions/download-artifact@v4
+        with:
+          name: notifications-backend
+          path: collected/notifications/backend
+          run-id: ${{ github.event.workflow_run.id }}
+        continue-on-error: true
+
+      - name: Install Allure CLI
+        run: npm i -g allure-commandline
+
+      - name: Merge Allure results
+        run: |
+          mkdir -p collected/allure-results
+          rsync -a collected/**/allure-results/ collected/allure-results/ || true
+
+      - name: Restore history
+        uses: actions/cache@v4
+        with:
+          path: collected/allure-history
+          key: allure-history-${{ github.ref_name }}
+          restore-keys: |
+            allure-history-
+
+      - name: Inject previous history (if any)
+        run: |
+          if [ -d collected/allure-history/history ]; then
+            mkdir -p collected/allure-results/history
+            rsync -a collected/allure-history/history/ collected/allure-results/history/
+          fi
+
+      - name: Generate Allure report
+        run: |
+          allure generate collected/allure-results --clean -o collected/allure-report
+          mkdir -p collected/allure-history
+          rsync -a collected/allure-report/history/ collected/allure-history/history/
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: collected/allure-report
+
+  deploy:
+    name: Deploy to Pages
+    runs-on: ubuntu-latest
+    needs: build
+    # environment:
+    #     # name: github-pages
+    #     url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
