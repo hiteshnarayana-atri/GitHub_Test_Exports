@@ -4,10 +4,8 @@ on:
   workflow_run:
     workflows: ["main - CI"]
     types: [completed]
-  workflow_dispatch:
 
 permissions:
-  actions: read
   contents: read
   pages: write
   id-token: write
@@ -16,47 +14,73 @@ jobs:
   build:
     name: Build Allure
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion != 'cancelled' }}
+    # build even if main-CI failed; we still want reports
+    if: ${{ always() }}
     steps:
       - uses: actions/checkout@v4
 
+      # Download ALL artifacts from that specific run of "main - CI"
       - name: Download artifacts from main - CI
         uses: dawidd6/action-download-artifact@v6
         with:
           run_id: ${{ github.event.workflow_run.id }}
-          name: |
-            base-backend
-            base-frontend
-            notifications-backend
+          # omit "name" so we fetch all artifacts from the run
           path: artifacts
           if_no_artifact_found: ignore
 
-      - name: Prepare Allure inputs
+      # Java for Allure CLI
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Install Allure CLI (no Docker)
+      - name: Install Allure CLI
         run: |
+          set -e
+          ALLURE_VERSION=2.29.0
+          curl -sL "https://github.com/allure-framework/allure2/releases/download/${ALLURE_VERSION}/allure-${ALLURE_VERSION}.tgz" -o /tmp/allure.tgz
+          sudo tar -C /opt -xzf /tmp/allure.tgz
+          echo "/opt/allure-${ALLURE_VERSION}/bin" >> "$GITHUB_PATH"
+
+      # Merge all allure-results folders from all artifacts
+      - name: Collect allure-results
+        run: |
+          set -e
           mkdir -p allure-results-merged
+          # pick up both backend and frontend allure-results folders if present
           find artifacts -type d -name "allure-results" -print0 | while IFS= read -r -d '' d; do
             cp -r "$d"/. allure-results-merged/
           done
           ls -la allure-results-merged || true
 
+      # Generate static report into ./public for Pages
       - name: Generate Allure report
-        uses: simple-elf/allure-report-action@v1
-        with:
-          allure_results: allure-results-merged
-          allure_report: allure-report
+        run: |
+          if [ -d "allure-results-merged" ] && [ "$(ls -A allure-results-merged)" ]; then
+            allure generate allure-results-merged -o public --clean
+          else
+            echo "No allure-results found; creating placeholder."
+            mkdir -p public && echo "<h1>No Allure results found</h1>" > public/index.html
+          fi
 
+      # Prepare upload to GitHub Pages
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: allure-report
+          path: public
 
   deploy:
     name: Deploy to Pages
     needs: build
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - id: deploy
+      - id: deployment
         uses: actions/deploy-pages@v4
