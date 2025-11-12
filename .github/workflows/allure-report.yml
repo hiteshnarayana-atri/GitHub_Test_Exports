@@ -2,10 +2,12 @@ name: Allure Report
 
 on:
   workflow_run:
-    workflows: ["main-CI"]
+    workflows: ["main - CI"]
     types: [completed]
+  workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
   pages: write
   id-token: write
@@ -16,10 +18,9 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion != 'cancelled' }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Download artifacts from main-CI
+      - name: Download artifacts from main - CI
         uses: dawidd6/action-download-artifact@v6
         with:
           run_id: ${{ github.event.workflow_run.id }}
@@ -43,7 +44,9 @@ jobs:
         with:
           allure_results: allure-results-merged
           allure_report: allure-report
-        #   keep_history: true
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
@@ -54,9 +57,6 @@ jobs:
     name: Deploy to Pages
     needs: build
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - id: deploy
         uses: actions/deploy-pages@v4
