@@ -19,3 +19,6 @@ pycodestyle==2.7.0
 autopep8==1.5.7
 Pygments==2.19.1
 toml==0.10.2
+
+# Allure-Framework for test reporting
+allure-pytest==2.13.5
