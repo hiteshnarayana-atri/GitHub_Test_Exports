@@ -3,7 +3,7 @@ name: Allure Report
 on:
   workflow_dispatch:
   workflow_run:
-    workflows: ["main - CI"]
+    workflows: ["main-CI"]
     types: [completed]
 
 permissions:
