@@ -46,11 +46,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install Pillow
-          pip install pytest pytest-django pytest-cov model-bakery
+          pip install Pillow pytest pytest-django pytest-cov model-bakery
 
-      # ─── Backend (always)
-      - name: Pytest (XML coverage) for backend
+      - name: Pytest (XML and coverage)
         run: |
           mkdir -p reports/${{ matrix.app }}/backend
           if [ -d "${{ matrix.app }}/tests" ]; then
@@ -65,7 +63,7 @@ jobs:
             --cov="$COV_TARGET" \
             --cov-report=xml:reports/${{ matrix.app }}/backend/coverage.xml
 
-      - name: Convert backend JUnit to CSV (with metadata)
+      - name: Convert backend JUnit to CSV
         run: |
           python scripts/convert_junit_to_csv.py \
             "reports/${{ matrix.app }}/backend/pytest.xml" \
@@ -84,7 +82,7 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-      - name: Publish backend test summary
+      - name: Test summary (backend)
         uses: dorny/test-reporter@v1
         if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
         with:
@@ -94,15 +92,13 @@ jobs:
           fail-on-error: false
           fail-on-empty: false
 
-      # ─── Frontend 
-      - name: Setup Node (if app has frontend)
+      - uses: actions/setup-node@v4
         if: ${{ matrix.has_frontend == true }}
-        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
-      - name: Start server (only if app has frontend)
+      - name: Start server
         if: ${{ matrix.has_frontend == true }}
         run: |
           python manage.py migrate --noinput
@@ -112,17 +108,17 @@ jobs:
             sleep 1
           done
 
-      - name: Install Cypress deps (only if app has frontend)
+      - name: Install Cypress deps
         if: ${{ matrix.has_frontend == true }}
         run: npm ci
 
-      - name: Run Cypress (JUnit) (only if app has frontend)
+      - name: Run Cypress (JUnit)
         if: ${{ matrix.has_frontend == true }}
         run: |
           mkdir -p reports/${{ matrix.app }}/frontend
           npx cypress run --browser chrome
 
-      - name: Convert Cypress JUnit → CSV (with metadata)
+      - name: Convert Cypress JUnit to CSV
         if: ${{ matrix.has_frontend == true }}
         run: |
           python scripts/convert_junit_to_csv.py \
@@ -146,7 +142,7 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-      - name: Publish Cypress test summary
+      - name: Test summary (frontend)
         if: ${{ always() && matrix.has_frontend == true && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
         uses: dorny/test-reporter@v1
         with:
@@ -156,7 +152,6 @@ jobs:
           fail-on-error: false
           fail-on-empty: false
 
-  # ─── Aggregation (even on failures) 
   aggregate:
     name: Aggregate Reports
     runs-on: ubuntu-latest
@@ -168,19 +163,17 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Download base artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: base-backend
           path: collected/base/backend
+        continue-on-error: true
       - uses: actions/download-artifact@v4
         with:
           name: base-frontend
           path: collected/base/frontend
         continue-on-error: true
-
-      - name: Download notifications artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: notifications-backend
           path: collected/notifications/backend
@@ -191,14 +184,16 @@ jobs:
           path: collected/notifications/frontend
         continue-on-error: true
 
-      - name: Merge all JUnit to CSV & JSON
+      - name: Merge JUnit to CSV & JSON
         run: |
-          python scripts/merge_junit_tests.py 'collected/**/*.xml' collected/out
+          python scripts/merge_junit_tests.py 'collected/**/*.xml' collected/out \
+            "${{ github.run_id }}" "${{ github.run_number }}" \
+            "${{ github.sha }}" "${{ github.ref_name }}" \
+            "${{ github.workflow }}"
           ls -la collected/out
           head -n 5 collected/out/all_tests.csv || true
 
-      - name: Upload combined reports
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: combined-test-reports
           path: collected/out/*
