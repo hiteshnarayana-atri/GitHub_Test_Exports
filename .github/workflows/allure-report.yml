@@ -31,19 +31,36 @@ jobs:
           path: artifacts
           if_no_artifact_found: ignore
 
-      - name: Prepare Allure inputs
+      - name: Merge allure-results
         run: |
           mkdir -p allure-results-merged
           find artifacts -type d -name "allure-results" -print0 | while IFS= read -r -d '' d; do
             cp -r "$d"/. allure-results-merged/
           done
           ls -la allure-results-merged || true
+          # ensure we always have something to publish
+          mkdir -p allure-report
+          echo "<html><body><h3>No Allure results found.</h3></body></html>" > allure-report/index.html
 
-      - name: Generate Allure report
-        uses: simple-elf/allure-report-action@v1
+      # Install Allure CLI without Docker
+      - name: Install Java
+        uses: actions/setup-java@v4
         with:
-          allure_results: allure-results-merged
-          allure_report: allure-report
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Allure CLI
+        run: |
+          ALLURE_VERSION=2.29.0
+          curl -sL https://github.com/allure-framework/allure2/releases/download/$ALLURE_VERSION/allure-$ALLURE_VERSION.tgz -o /tmp/allure.tgz
+          sudo tar -C /opt -xzf /tmp/allure.tgz
+          echo "/opt/allure-$ALLURE_VERSION/bin" >> $GITHUB_PATH
+
+      - name: Generate Allure report (if results exist)
+        if: ${{ hashFiles('allure-results-merged/**') != '' }}
+        run: |
+          allure generate allure-results-merged -o allure-report --clean
+          test -f allure-report/index.html
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
@@ -55,8 +72,8 @@ jobs:
 
   deploy:
     name: Deploy to Pages
-    needs: build
     runs-on: ubuntu-latest
+    needs: build
     steps:
       - id: deploy
         uses: actions/deploy-pages@v4
