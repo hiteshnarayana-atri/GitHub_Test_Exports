@@ -10,75 +10,66 @@ def _status(tc):
             'error'  if tc.find('error')   is not None else
             'skipped'if tc.find('skipped') is not None else 'passed')
 
-def _msg(tc):
-    for tag in ('failure','error'):
-        el = tc.find(tag)
-        if el is not None:
-            m = (el.attrib.get('message') or '').strip()
-            if not m:
-                m = (el.text or '').strip().replace('\n',' ')
-            return m[:200]
-    return ''
+def convert_xml_to_csv(xml_path, output_csv, component='', test_type=''):
+    xml_files = glob.glob(xml_path, recursive=True) if '*' in xml_path else ([xml_path] if os.path.exists(xml_path) else [])
+    if not xml_files:
+        print(f"Warning: No XML files found at {xml_path}")
 
-def _files(pattern):
-    if any(ch in pattern for ch in '*?['):
-        return glob.glob(pattern, recursive=True)
-    return [pattern] if os.path.exists(pattern) else []
+    # --- GitHub metadata (optional) ---
+    run_id      = sys.argv[5] if len(sys.argv) > 5 else ''
+    run_number  = sys.argv[6] if len(sys.argv) > 6 else ''
+    commit_sha  = sys.argv[7] if len(sys.argv) > 7 else ''
+    branch      = sys.argv[8] if len(sys.argv) > 8 else ''
+    workflow    = sys.argv[9] if len(sys.argv) > 9 else ''
+    now_iso     = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-def convert_xml_to_csv(xml_pattern, output_csv, component='', test_type='',
-                       run_id='', run_number='', commit_sha='', branch='', workflow_name=''):
-    files = _files(xml_pattern)
     rows = []
-    for f in files:
+    for xf in xml_files:
         try:
-            root = ET.parse(f).getroot()
+            root = ET.parse(xf).getroot()
         except Exception as e:
-            print(f"Warning: Failed to parse {f}: {e}")
+            print(f"Warning: Failed to parse {xf}: {e}")
             continue
-        default_ts = root.attrib.get('timestamp') or datetime.now(timezone.utc).isoformat()
+
         for suite in root.iter('testsuite'):
-            suite_name = suite.attrib.get('name', component or test_type)
-            ts = suite.attrib.get('timestamp', default_ts)
+            suite_name = suite.attrib.get('name', component or '')
             for tc in suite.iter('testcase'):
-                rows.append({
-                    "component": component,
-                    "test_type": test_type,
-                    "suite": suite_name,
-                    "class": tc.attrib.get('classname',''),
-                    "test_name": tc.attrib.get('name',''),
-                    "status": _status(tc),
-                    "duration_seconds": tc.attrib.get('time','0'),
-                    "file": tc.attrib.get('file',''),
-                    "message": _msg(tc),
-                    "run_id": run_id,
-                    "run_number": run_number,
-                    "commit_sha": commit_sha,
-                    "branch": branch,
-                    "workflow_name": workflow_name,
-                    "timestamp": ts,
-                    "source": f,
-                })
+                msg = ''
+                for tag in ('failure', 'error', 'skipped'):
+                    node = tc.find(tag)
+                    if node is not None:
+                        msg = (node.attrib.get('message') or '').strip()
+                        break
+
+                rows.append([
+                    component,
+                    test_type,
+                    suite_name,
+                    tc.attrib.get('classname',''),
+                    tc.attrib.get('name',''),
+                    _status(tc),
+                    tc.attrib.get('time','0'),
+                    tc.attrib.get('file',''),
+                    msg,
+                    run_id, run_number, commit_sha, branch, workflow,
+                    now_iso,
+                    xf,
+                ])
+
     os.makedirs(os.path.dirname(output_csv) or '.', exist_ok=True)
-    cols = ["component","test_type","suite","class","test_name","status","duration_seconds",
-            "file","message","run_id","run_number","commit_sha","branch","workflow_name",
-            "timestamp","source"]
-    with open(output_csv, 'w', newline='', encoding='utf-8') as fh:
-        w = csv.DictWriter(fh, fieldnames=cols)
-        w.writeheader(); w.writerows(rows)
+    with open(output_csv, 'w', newline='') as f:
+        w = csv.writer(f)
+        w.writerow([
+            "component","test_type","suite","class","test_name",
+            "status","duration_seconds","file","message",
+            "run_id","run_number","commit_sha","branch","workflow_name",
+            "timestamp","source"
+        ])
+        w.writerows(rows)
     print(f"Wrote {output_csv}, rows: {len(rows)}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Usage: python scripts/convert_junit_to_csv.py <input_xml_or_glob> <output_csv> "
-              "[component] [test_type] [run_id] [run_number] [sha] [branch] [workflow]")
+        print("Usage: python scripts/convert_junit_to_csv.py <input_xml> <output_csv> [component] [test_type] [run_id] [run_number] [sha] [branch] [workflow]")
         sys.exit(1)
-    xml_path   = sys.argv[1]
-    output_csv = sys.argv[2]
-    component  = sys.argv[3] if len(sys.argv) > 3 else ''
-    test_type  = sys.argv[4] if len(sys.argv) > 4 else ''
-    run_id     = sys.argv[5] if len(sys.argv) > 5 else ''
-    run_number = sys.argv[6] if len(sys.argv) > 6 else ''
-    sha        = sys.argv[7] if len(sys.argv) > 7 else ''
-    branch     = sys.argv[8] if len(sys.argv) > 8 else ''
-    workflow   = sys.argv[9] if len(sys.argv) > 9 else ''
-    convert_xml_to_csv(xml_path, output_csv, component, test_type, run_id, run_number, sha, branch, workflow)
+    convert_xml_to_csv(sys.argv[1], sys.argv[2], sys.argv[3] if len(sys.argv)>3 else '', sys.argv[4] if len(sys.argv)>4 else '')
