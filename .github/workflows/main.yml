@@ -147,7 +147,7 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-      - name: Test summary (frontend)
+      - name: Test summary - (frontend)
         if: ${{ always() && matrix.has_frontend == true && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
         uses: dorny/test-reporter@v1
         with:
