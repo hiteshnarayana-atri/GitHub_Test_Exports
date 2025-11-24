@@ -2,7 +2,7 @@ name: main - CI
 
 on:
   pull_request:
-    branches: [main, HN_feature_GitHub_Test_Exports]
+    branches: [ main, HN_feature_GitHub_Test_Exports ]
   workflow_dispatch:
 
 permissions:
@@ -41,6 +41,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install Pillow pytest pytest-django pytest-cov model-bakery
 
@@ -65,7 +66,7 @@ jobs:
 
       - name: Upload backend results
         uses: actions/upload-artifact@v4
-        if: always()
+        if: ${{ always() }}
         with:
           name: ${{ matrix.app }}-backend
           path: reports/${{ matrix.app }}/backend/*
@@ -73,7 +74,7 @@ jobs:
 
       - name: Backend test report
         uses: dorny/test-reporter@v1
-        if: always() && github.event.pull_request.head.repo.fork == false
+        if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
         with:
           name: "${{ matrix.app }} • Django"
           path: reports/${{ matrix.app }}/backend/pytest.xml
@@ -82,13 +83,13 @@ jobs:
 
       # Frontend tests (base only)
       - uses: actions/setup-node@v4
-        if: matrix.has_frontend
+        if: ${{ matrix.has_frontend }}
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
       - name: Start Django server
-        if: matrix.has_frontend
+        if: ${{ matrix.has_frontend }}
         run: |
           python manage.py migrate --noinput
           python manage.py runserver 0.0.0.0:8000 > server.log 2>&1 &
@@ -109,14 +110,14 @@ jobs:
           done
 
       - name: Run Cypress
-        if: matrix.has_frontend
+        if: ${{ matrix.has_frontend }}
         run: |
           npm ci
           mkdir -p reports/${{ matrix.app }}/frontend
           npx cypress run --browser chrome
 
       - name: Export frontend results
-        if: matrix.has_frontend
+        if: ${{ matrix.has_frontend }}
         run: |
           python scripts/convert_junit_to_csv.py \
             "reports/frontend/*.xml" \
@@ -124,7 +125,7 @@ jobs:
             "${{ matrix.app }}" "cypress"
 
       - name: Upload frontend results
-        if: always() && matrix.has_frontend
+        if: ${{ always() && matrix.has_frontend }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.app }}-frontend
@@ -137,7 +138,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Frontend test report
-        if: always() && matrix.has_frontend && github.event.pull_request.head.repo.fork == false
+        if: ${{ always() && matrix.has_frontend && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
         uses: dorny/test-reporter@v1
         with:
           name: "${{ matrix.app }} • Cypress"
@@ -148,8 +149,8 @@ jobs:
   aggregate:
     name: Aggregate Results
     runs-on: ubuntu-latest
-    needs: [test]
-    if: always()
+    needs: [ test ]
+    if: ${{ always() }}
     
     steps:
       - uses: actions/checkout@v4
