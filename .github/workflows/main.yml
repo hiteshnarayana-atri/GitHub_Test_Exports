@@ -46,12 +46,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install Pillow pytest pytest-django pytest-cov model-bakery
+          pip install Pillow pytest pytest-django pytest-cov model-bakery allure-pytest
 
       # Backend
-      - name: Pytest (XML and coverage)
+      - name: Pytest (XML, coverage, Allure)
         run: |
-          mkdir -p reports/${{ matrix.app }}/backend
+          mkdir -p reports/${{ matrix.app }}/backend/allure-results
           if [ -d "${{ matrix.app }}/tests" ]; then
             TEST_PATH="${{ matrix.app }}/tests"
             COV_TARGET="${{ matrix.app }}"
@@ -62,7 +62,8 @@ jobs:
           pytest -q "$TEST_PATH" \
             --junitxml=reports/${{ matrix.app }}/backend/pytest.xml \
             --cov="$COV_TARGET" \
-            --cov-report=xml:reports/${{ matrix.app }}/backend/coverage.xml
+            --cov-report=xml:reports/${{ matrix.app }}/backend/coverage.xml \
+            --alluredir=reports/${{ matrix.app }}/backend/allure-results
 
       - name: Convert backend JUnit to CSV
         run: |
@@ -76,7 +77,11 @@ jobs:
         if: always()
         with:
           name: ${{ matrix.app }}-backend
-          path: reports/${{ matrix.app }}/backend/*
+          path: |
+            reports/${{ matrix.app }}/backend/pytest.xml
+            reports/${{ matrix.app }}/backend/coverage.xml
+            reports/${{ matrix.app }}/backend/tests_backend.csv
+            reports/${{ matrix.app }}/backend/allure-results/**
           retention-days: 7
           if-no-files-found: error
 
@@ -103,7 +108,9 @@ jobs:
           python manage.py migrate --noinput
           nohup python manage.py runserver 0.0.0.0:8000 >/dev/null 2>&1 &
           for i in {1..40}; do
-            curl -fsS http://127.0.0.1:8000/ && break
+            if curl -fsS http://127.0.0.1:8000/ >/dev/null 2>&1; then
+              break
+            fi
             sleep 1
           done
 
@@ -111,10 +118,11 @@ jobs:
         if: ${{ matrix.has_frontend == true }}
         run: npm ci
 
-      - name: Run Cypress (JUnit)
+      - name: Run Cypress (JUnit + Allure)
         if: ${{ matrix.has_frontend == true }}
         run: |
           mkdir -p reports/${{ matrix.app }}/frontend
+          # your cypress-allure-plugin should already be wired in cypress.config.js
           npx cypress run --browser chrome
 
       - name: Convert Cypress JUnit to CSV
@@ -131,8 +139,9 @@ jobs:
         with:
           name: ${{ matrix.app }}-frontend
           path: |
-            reports/${{ matrix.app }}/frontend/*.csv
+            reports/${{ matrix.app }}/frontend/tests_frontend.csv
             reports/frontend/*.xml
+            allure-results/**          # Cypress Allure results (default path)
             cypress/videos/**
             cypress/screenshots/**
           retention-days: 7
@@ -155,6 +164,7 @@ jobs:
     if: ${{ always() }}
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
