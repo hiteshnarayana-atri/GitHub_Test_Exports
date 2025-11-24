@@ -2,7 +2,7 @@ name: main - CI
 
 on:
   pull_request:
-    branches: [main, HN_feature_GitHub_Test_Exports]
+    branches: [ HN_main_GitHub_Test_Exports, HN_feature_GitHub_Test_Exports ]
   workflow_dispatch:
 
 permissions:
@@ -19,7 +19,7 @@ env:
   NODE_VERSION: "20"
 
 jobs:
-  test:
+  app:
     name: ${{ matrix.app }}
     runs-on: ubuntu-latest
     strategy:
@@ -38,125 +38,168 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
+          cache-dependency-path: |
+            requirements*.txt
+            **/requirements*.txt
 
-      - name: Install dependencies
+      - name: Install Python deps
         run: |
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install Pillow pytest pytest-django pytest-cov model-bakery
+          pip install Pillow pytest pytest-django pytest-cov model-bakery allure-pytest
 
-      # Backend tests
-      - name: Run pytest
+      # Backend
+      - name: Pytest (XML, coverage, Allure)
         run: |
-          mkdir -p reports/${{ matrix.app }}/backend
-          TEST_PATH=${{ matrix.app }}/tests
-          COV_TARGET=${{ matrix.app }}
-          [ ! -d "$TEST_PATH" ] && TEST_PATH=tests && COV_TARGET=base
+          mkdir -p reports/${{ matrix.app }}/backend/allure-results
+          if [ -d "${{ matrix.app }}/tests" ]; then
+            TEST_PATH="${{ matrix.app }}/tests"
+            COV_TARGET="${{ matrix.app }}"
+          else
+            TEST_PATH="tests"
+            COV_TARGET="base"
+          fi
           pytest -q "$TEST_PATH" \
             --junitxml=reports/${{ matrix.app }}/backend/pytest.xml \
             --cov="$COV_TARGET" \
-            --cov-report=xml:reports/${{ matrix.app }}/backend/coverage.xml
+            --cov-report=xml:reports/${{ matrix.app }}/backend/coverage.xml \
+            --alluredir=reports/${{ matrix.app }}/backend/allure-results
 
-      - name: Export backend results
+      - name: Convert backend JUnit to CSV
         run: |
           python scripts/convert_junit_to_csv.py \
             "reports/${{ matrix.app }}/backend/pytest.xml" \
-            "reports/${{ matrix.app }}/backend/tests.csv" \
+            "reports/${{ matrix.app }}/backend/tests_backend.csv" \
             "${{ matrix.app }}" "pytest"
 
-      - name: Upload backend results
+      - name: Upload backend artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: ${{ matrix.app }}-backend
-          path: reports/${{ matrix.app }}/backend/*
+          path: |
+            reports/${{ matrix.app }}/backend/pytest.xml
+            reports/${{ matrix.app }}/backend/coverage.xml
+            reports/${{ matrix.app }}/backend/tests_backend.csv
+            reports/${{ matrix.app }}/backend/allure-results/**
           retention-days: 7
+          if-no-files-found: error
 
-      - name: Backend test report
+      - name: Test summary (backend)
         uses: dorny/test-reporter@v1
-        if: always() && github.event.pull_request.head.repo.fork == false
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
         with:
           name: "${{ matrix.app }} • Django"
           path: reports/${{ matrix.app }}/backend/pytest.xml
           reporter: java-junit
           fail-on-error: false
+          fail-on-empty: false
 
-      # Frontend tests (base only)
+      # Frontend (base only)
       - uses: actions/setup-node@v4
-        if: matrix.has_frontend
+        if: ${{ matrix.has_frontend == true }}
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
-      - name: Start Django server
-        if: matrix.has_frontend
+      - name: Start server
+        if: ${{ matrix.has_frontend == true }}
         run: |
           python manage.py migrate --noinput
           nohup python manage.py runserver 0.0.0.0:8000 >/dev/null 2>&1 &
-          timeout 40 bash -c 'until curl -fsS http://127.0.0.1:8000/; do sleep 1; done'
+          for i in {1..40}; do
+            if curl -fsS http://127.0.0.1:8000/ >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
 
-      - name: Run Cypress
-        if: matrix.has_frontend
+      - name: Install Cypress deps
+        if: ${{ matrix.has_frontend == true }}
+        run: npm ci
+
+      - name: Run Cypress (JUnit + Allure)
+        if: ${{ matrix.has_frontend == true }}
         run: |
-          npm ci
           mkdir -p reports/${{ matrix.app }}/frontend
+          # your cypress-allure-plugin should already be wired in cypress.config.js
           npx cypress run --browser chrome
 
-      - name: Export frontend results
-        if: matrix.has_frontend
+      - name: Convert Cypress JUnit to CSV
+        if: ${{ matrix.has_frontend == true }}
         run: |
           python scripts/convert_junit_to_csv.py \
             "reports/frontend/*.xml" \
-            "reports/${{ matrix.app }}/frontend/tests.csv" \
+            "reports/${{ matrix.app }}/frontend/tests_frontend.csv" \
             "${{ matrix.app }}" "cypress"
 
-      - name: Upload frontend results
-        if: always() && matrix.has_frontend
+      - name: Upload frontend artifacts
+        if: ${{ always() && matrix.has_frontend == true }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.app }}-frontend
           path: |
-            reports/${{ matrix.app }}/frontend/*.csv
+            reports/${{ matrix.app }}/frontend/tests_frontend.csv
             reports/frontend/*.xml
+            allure-results/**          # Cypress Allure results (default path)
             cypress/videos/**
             cypress/screenshots/**
           retention-days: 7
           if-no-files-found: ignore
 
-      - name: Frontend test report
-        if: always() && matrix.has_frontend && github.event.pull_request.head.repo.fork == false
+      - name: Test summary (frontend)
+        if: ${{ always() && matrix.has_frontend == true && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
         uses: dorny/test-reporter@v1
         with:
           name: "${{ matrix.app }} • Cypress"
           path: reports/frontend/*.xml
           reporter: java-junit
           fail-on-error: false
+          fail-on-empty: false
 
   aggregate:
-    name: Aggregate Results
+    name: Aggregate Reports
     runs-on: ubuntu-latest
-    needs: [test]
-    if: always()
-    
+    needs: [ app ]
+    if: ${{ always() }}
     steps:
       - uses: actions/checkout@v4
-      
+
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
-          path: collected
+          name: base-backend
+          path: collected/base/backend
         continue-on-error: true
 
-      - name: Merge test results
+      - uses: actions/download-artifact@v4
+        with:
+          name: base-frontend
+          path: collected/base/frontend
+        continue-on-error: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: notifications-backend
+          path: collected/notifications/backend
+        continue-on-error: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: notifications-frontend
+          path: collected/notifications/frontend
+        continue-on-error: true
+
+      - name: Merge JUnit to CSV & JSON
         run: |
           python scripts/merge_junit_tests.py 'collected/**/*.xml' collected/out
-          find collected/out -type f -name 'all_tests.*' -exec ls -lh {} \;
+          ls -R collected/out
+          find collected/out -maxdepth 4 -type f -name 'all_tests.csv' | head -n 5 || true
 
-      - name: Upload aggregated reports
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: combined-test-reports
           path: collected/out/**/*
