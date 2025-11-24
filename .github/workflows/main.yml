@@ -2,7 +2,7 @@ name: main - CI
 
 on:
   pull_request:
-    branches: [ main, HN_feature_GitHub_Test_Exports ]
+    branches: [ HN_main_GitHub_Test_Exports, HN_feature_GitHub_Test_Exports ]
   workflow_dispatch:
 
 permissions:
