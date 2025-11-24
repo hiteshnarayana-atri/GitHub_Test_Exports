@@ -149,20 +149,27 @@ Matrix-based parallelization across applications with conditional frontend execu
 
 Exported datasets include comprehensive metadata for analytical consumption:
 
-- `component`: Application identifier
-- `suite_name`: Test suite classification
-- `classname`: Test module or component path
-- `test_name`: Individual test identifier
-- `status`: Execution outcome (passed/failed/skipped)
-- `duration`: Execution time (seconds)
-- `file`: Source file location
-- `message`: Failure diagnostics or skip reason
-- `run_id`: GitHub Actions workflow run identifier
-- `run_number`: Sequential run number
-- `commit_sha`: Git commit hash
-- `branch`: Source branch name
-- `workflow_name`: Workflow identifier
-- `timestamp`: Execution timestamp (ISO 8601)
+- `django_app`: Application identifier  
+- `test_type`: Type of test (e.g., unit, integration)  
+- `suite`: Test suite classification  
+- `class`: Test class/module path  
+- `test_name`: Individual test identifier  
+- `status`: Execution outcome (passed/failed/skipped)  
+- `duration_seconds`: Execution time (seconds)  
+- `test_file`: Source file location  
+- `error_message`: Failure diagnostics or skip reason  
+- `execution_timestamp`: Execution timestamp (ISO 8601)  
+- `job_uid`: GitHub Actions job unique identifier  
+- `job_name`: GitHub Actions job name  
+- `run_id`: GitHub Actions workflow run identifier  
+- `run_number`: Sequential run number  
+- `commit_sha`: Git commit hash  
+- `ref_name`: Reference name (branch or tag)  
+- `target_branch`: Target branch name (where PR is merged)  
+- `source_branch`: Source branch name (where PR originates)  
+- `pr_title`: Pull request title  
+- `workflow_name`: Workflow identifier  
+- `source_file`: Source file path  
 
 ## Integration Capabilities
 
