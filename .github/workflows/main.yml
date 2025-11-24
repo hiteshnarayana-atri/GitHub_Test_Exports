@@ -2,7 +2,7 @@ name: main - CI
 
 on:
   pull_request:
-    branches: [ main, HN_feature_GitHub_Test_Exports ]
+    branches: [ HN_main_GitHub_Test_Exports, HN_feature_GitHub_Test_Exports ]
   workflow_dispatch:
 
 permissions:
@@ -46,11 +46,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install Pillow pytest pytest-django pytest-cov model-bakery
+          pip install Pillow pytest pytest-django pytest-cov model-bakery allure-pytest
 
+      # Backend
       - name: Pytest (XML, coverage, Allure)
         run: |
-          mkdir -p reports/${{ matrix.app }}/backend
+          mkdir -p reports/${{ matrix.app }}/backend/allure-results
           if [ -d "${{ matrix.app }}/tests" ]; then
             TEST_PATH="${{ matrix.app }}/tests"
             COV_TARGET="${{ matrix.app }}"
@@ -69,10 +70,7 @@ jobs:
           python scripts/convert_junit_to_csv.py \
             "reports/${{ matrix.app }}/backend/pytest.xml" \
             "reports/${{ matrix.app }}/backend/tests_backend.csv" \
-            "${{ matrix.app }}" "pytest" \
-            "${{ github.run_id }}" "${{ github.run_number }}" \
-            "${{ github.sha }}" "${{ github.ref_name }}" \
-            "${{ github.workflow }}"
+            "${{ matrix.app }}" "pytest"
 
       - name: Upload backend artifacts
         uses: actions/upload-artifact@v4
@@ -80,8 +78,10 @@ jobs:
         with:
           name: ${{ matrix.app }}-backend
           path: |
+            reports/${{ matrix.app }}/backend/pytest.xml
+            reports/${{ matrix.app }}/backend/coverage.xml
+            reports/${{ matrix.app }}/backend/tests_backend.csv
             reports/${{ matrix.app }}/backend/allure-results/**
-            reports/${{ matrix.app }}/backend/*
           retention-days: 7
           if-no-files-found: error
 
@@ -95,6 +95,7 @@ jobs:
           fail-on-error: false
           fail-on-empty: false
 
+      # Frontend (base only)
       - uses: actions/setup-node@v4
         if: ${{ matrix.has_frontend == true }}
         with:
@@ -107,7 +108,9 @@ jobs:
           python manage.py migrate --noinput
           nohup python manage.py runserver 0.0.0.0:8000 >/dev/null 2>&1 &
           for i in {1..40}; do
-            curl -fsS http://127.0.0.1:8000/ && break
+            if curl -fsS http://127.0.0.1:8000/ >/dev/null 2>&1; then
+              break
+            fi
             sleep 1
           done
 
@@ -115,12 +118,12 @@ jobs:
         if: ${{ matrix.has_frontend == true }}
         run: npm ci
 
-      - name: Run Cypress (JUnit, Allure)
+      - name: Run Cypress (JUnit + Allure)
         if: ${{ matrix.has_frontend == true }}
         run: |
           mkdir -p reports/${{ matrix.app }}/frontend
-          npx cypress run --browser chrome \
-            --env allure=true,allureResultsPath=reports/${{ matrix.app }}/frontend/allure-results
+          # your cypress-allure-plugin should already be wired in cypress.config.js
+          npx cypress run --browser chrome
 
       - name: Convert Cypress JUnit to CSV
         if: ${{ matrix.has_frontend == true }}
@@ -128,10 +131,7 @@ jobs:
           python scripts/convert_junit_to_csv.py \
             "reports/frontend/*.xml" \
             "reports/${{ matrix.app }}/frontend/tests_frontend.csv" \
-            "${{ matrix.app }}" "cypress" \
-            "${{ github.run_id }}" "${{ github.run_number }}" \
-            "${{ github.sha }}" "${{ github.ref_name }}" \
-            "${{ github.workflow }}"
+            "${{ matrix.app }}" "cypress"
 
       - name: Upload frontend artifacts
         if: ${{ always() && matrix.has_frontend == true }}
@@ -139,9 +139,9 @@ jobs:
         with:
           name: ${{ matrix.app }}-frontend
           path: |
-            reports/${{ matrix.app }}/frontend/allure-results/**
-            reports/${{ matrix.app }}/frontend/*.csv
+            reports/${{ matrix.app }}/frontend/tests_frontend.csv
             reports/frontend/*.xml
+            allure-results/**          # Cypress Allure results (default path)
             cypress/videos/**
             cypress/screenshots/**
           retention-days: 7
@@ -164,6 +164,7 @@ jobs:
     if: ${{ always() }}
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -173,16 +174,19 @@ jobs:
           name: base-backend
           path: collected/base/backend
         continue-on-error: true
+
       - uses: actions/download-artifact@v4
         with:
           name: base-frontend
           path: collected/base/frontend
         continue-on-error: true
+
       - uses: actions/download-artifact@v4
         with:
           name: notifications-backend
           path: collected/notifications/backend
         continue-on-error: true
+
       - uses: actions/download-artifact@v4
         with:
           name: notifications-frontend
@@ -191,15 +195,12 @@ jobs:
 
       - name: Merge JUnit to CSV & JSON
         run: |
-          python scripts/merge_junit_tests.py 'collected/**/*.xml' collected/out \
-            "${{ github.run_id }}" "${{ github.run_number }}" \
-            "${{ github.sha }}" "${{ github.ref_name }}" \
-            "${{ github.workflow }}"
-          ls -la collected/out
-          head -n 5 collected/out/all_tests.csv || true
+          python scripts/merge_junit_tests.py 'collected/**/*.xml' collected/out
+          ls -R collected/out
+          find collected/out -maxdepth 4 -type f -name 'all_tests.csv' | head -n 5 || true
 
       - uses: actions/upload-artifact@v4
         with:
           name: combined-test-reports
-          path: collected/out/*
+          path: collected/out/**/*
           retention-days: 30
