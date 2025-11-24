@@ -91,8 +91,22 @@ jobs:
         if: matrix.has_frontend
         run: |
           python manage.py migrate --noinput
-          nohup python manage.py runserver 0.0.0.0:8000 >/dev/null 2>&1 &
-          timeout 40 bash -c 'until curl -fsS http://127.0.0.1:8000/; do sleep 1; done'
+          python manage.py runserver 0.0.0.0:8000 > server.log 2>&1 &
+          SERVER_PID=$!
+          echo "Server PID: $SERVER_PID"
+          
+          for i in {1..40}; do
+            if curl -fsS http://127.0.0.1:8000/ >/dev/null 2>&1; then
+              echo "Server is up!"
+              break
+            fi
+            if [ $i -eq 40 ]; then
+              echo "Server failed to start. Logs:"
+              cat server.log
+              exit 1
+            fi
+            sleep 1
+          done
 
       - name: Run Cypress
         if: matrix.has_frontend
